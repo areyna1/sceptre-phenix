@@ -1,0 +1,89 @@
+version: '3.7'
+x-common: &common
+  init: true
+  network_mode: host
+  restart: always
+  logging:
+    driver: "json-file"
+    options:
+      max-file: "5"
+      max-size: "10m"
+services:
+  phenix:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+      args:
+        MM_MIN_REV: c8e20a3
+        PHENIX_WEB_AUTH: disabled
+    command:
+    - phenix
+    - ui
+    - --hostname-suffixes=-minimega,-phenix
+    - --minimega-console
+    image: phenix
+    container_name: phenix
+    privileged: true
+    <<: *common
+    volumes:
+      - /dev:/dev
+      - /proc:/proc
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/phenix:/var/log/phenix
+      - /etc/phenix:/etc/phenix
+      - /var/run/netns:/var/run/netns:shared
+      - /phenix:/phenix:shared
+      - ./tmp/minimega:/tmp/minimega
+      - ./tmp/phenix:/tmp/phenix
+    depends_on:
+      - minimega
+    healthcheck:
+      test: phenix version
+  minimega:
+    build:
+      context: .
+      dockerfile: Dockerfile.minimega
+      args:
+        MM_REV: c8e20a3
+    image: minimega
+    container_name: minimega
+    privileged: true
+    <<: *common
+    volumes:
+      - /dev:/dev
+      - /lib/modules:/lib/modules:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/phenix:/var/log/phenix
+      - /var/run/netns:/var/run/netns:shared
+      - /phenix:/phenix:shared
+      - ./tmp/minimega:/tmp/minimega
+      - ./tmp/phenix:/tmp/phenix
+    healthcheck:
+      test: mm version
+    environment:
+      MM_FILEPATH: /phenix/images
+      MM_LOGFILE: /var/log/phenix/minimega.log
+      MM_LOGLEVEL: info
+  es:
+    image: elasticsearch:7.17.5
+    container_name: es
+    <<: *common
+    volumes:
+      - /phenix/share/elasticsearch/data:/usr/share/elasticsearch/data
+    environment:
+      discovery.type: single-node
+    depends_on:
+      - volume-permissions-manager
+  kibana:
+    image: kibana:7.17.5
+    container_name: kibana
+    <<: *common
+    environment:
+      ELASTICSEARCH_HOSTS: http://localhost:9200
+    depends_on:
+      - es
+  volume-permissions-manager:
+    image: alpine:latest
+    command: sh -c "chmod -R 777 /usr/share/elasticsearch"
+    volumes:
+      - /phenix/share/elasticsearch/data:/usr/share/elasticsearch/data

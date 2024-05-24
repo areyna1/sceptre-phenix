@@ -1,0 +1,158 @@
+package v1
+
+import (
+	"fmt"
+	ifaces "phenix/types/interfaces"
+
+	"github.com/hashicorp/go-multierror"
+)
+
+type TopologySpec struct {
+	NodesF []*Node `json:"nodes" yaml:"nodes" structs:"nodes" mapstructure:"nodes"`
+}
+
+func (this *TopologySpec) Nodes() []ifaces.NodeSpec {
+	if this == nil {
+		return nil
+	}
+
+	nodes := make([]ifaces.NodeSpec, len(this.NodesF))
+
+	for i, n := range this.NodesF {
+		nodes[i] = n
+	}
+
+	return nodes
+}
+
+func (this *TopologySpec) BootableNodes() []ifaces.NodeSpec {
+	if this == nil {
+		return nil
+	}
+
+	var bootable []ifaces.NodeSpec
+
+	for _, n := range this.NodesF {
+		var dnb bool
+
+		if n.GeneralF.DoNotBootF != nil {
+			dnb = *n.GeneralF.DoNotBootF
+		}
+
+		if dnb {
+			continue
+		}
+
+		bootable = append(bootable, n)
+	}
+
+	return bootable
+}
+
+func (this *TopologySpec) SchedulableNodes(platform string) []ifaces.NodeSpec {
+	if this == nil {
+		return nil
+	}
+
+	var schedulable []ifaces.NodeSpec
+
+	for _, n := range this.NodesF {
+		if !n.External() {
+			schedulable = append(schedulable, n)
+		}
+	}
+
+	return schedulable
+}
+
+func (this TopologySpec) FindNodeByName(name string) ifaces.NodeSpec {
+	for _, node := range this.NodesF {
+		if node.GeneralF.HostnameF == name {
+			return node
+		}
+	}
+
+	return nil
+}
+
+// FindNodesWithLabels finds all nodes in the topology containing at least one
+// of the labels provided. Take note that the node does not have to have all the
+// labels provided, just one.
+func (this TopologySpec) FindNodesWithLabels(labels ...string) []ifaces.NodeSpec {
+	var nodes []ifaces.NodeSpec
+
+	for _, n := range this.NodesF {
+		for _, l := range labels {
+			if _, ok := n.LabelsF[l]; ok {
+				nodes = append(nodes, n)
+				break
+			}
+		}
+	}
+
+	return nodes
+}
+
+func (this TopologySpec) FindDelayedNodes() []ifaces.NodeSpec {
+	var nodes []ifaces.NodeSpec
+
+	for _, n := range this.NodesF {
+		if n.Delayed() != "" {
+			nodes = append(nodes, n)
+		}
+	}
+
+	return nodes
+}
+
+func (this *TopologySpec) AddNode(typ, hostname string) ifaces.NodeSpec {
+	n := &Node{
+		TypeF: typ,
+		GeneralF: &General{
+			HostnameF: hostname,
+		},
+	}
+
+	this.NodesF = append(this.NodesF, n)
+
+	return n
+}
+
+func (this *TopologySpec) RemoveNode(hostname string) {
+	idx := -1
+
+	for i, node := range this.NodesF {
+		if node.GeneralF.HostnameF == hostname {
+			idx = i
+			break
+		}
+	}
+
+	if idx != -1 {
+		this.NodesF = append(this.NodesF[:idx], this.NodesF[idx+1:]...)
+	}
+}
+
+func (this TopologySpec) HasCommands() bool {
+	for _, node := range this.Nodes() {
+		if len(node.Commands()) > 0 {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (this *TopologySpec) Init(bridge string) error {
+	var errs error
+
+	for _, n := range this.NodesF {
+		if err := n.validate(); err != nil {
+			errs = multierror.Append(errs, fmt.Errorf("validating node %s: %w", n.GeneralF.HostnameF, err))
+		}
+
+		n.setDefaults(bridge)
+	}
+
+	return errs
+}

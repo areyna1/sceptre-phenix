@@ -1,0 +1,72 @@
+name: Publish phenix Docker images
+on:
+  push:
+    branches: ['**']
+  repository_dispatch:
+    types: [apps-update]
+jobs:
+  push-to-ghcr:
+    name: Push phenix Docker image to GitHub Packages
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v3
+      - name: Get short SHA
+        run: |
+          echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "branch=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_ENV
+      - name: Log in to GitHub Docker Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build container image
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          file: docker/Dockerfile
+          build-args: |
+            MM_MIN_REV=c8e20a3
+            PHENIX_COMMIT=${{ env.sha }}
+            PHENIX_TAG=${{ env.branch }}
+            APPS_REPO=github.com/${{ github.event_name == 'repository_dispatch' && github.event.client_payload.repo || 'sandialabs/sceptre-phenix-apps' }}
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/phenix:${{ env.sha }}
+            ghcr.io/${{ github.repository }}/phenix:${{ env.branch }}
+  push-jit-to-ghcr:
+    name: Push phenix JIT Docker image to GitHub Packages
+    runs-on: ubuntu-latest
+    needs: push-to-ghcr
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v3
+      - name: Get short SHA
+        run: |
+          echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "branch=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_ENV
+      - name: Log in to GitHub Docker Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build container image
+        uses: docker/build-push-action@v3
+        with:
+          context: docker/jit
+          file: docker/jit/Dockerfile
+          build-args: |
+            PHENIX_REPO=${{ github.repository }}
+            PHENIX_TAG=${{ env.branch }}
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/phenix-jit-ui:${{ env.sha }}
+            ghcr.io/${{ github.repository }}/phenix-jit-ui:${{ env.branch }}

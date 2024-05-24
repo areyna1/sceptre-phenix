@@ -1,0 +1,200 @@
+{{ $dc := index .Node.Annotations "phenix/domain-controller" }}
+
+{{ if toBool $dc }}
+while ($true) {
+    try {
+        Get-ADDomain | Out-Null
+        Write-Host "[+] Domain Controller services ready!"
+        break
+    } catch {
+        Write-Host "[-] Waiting for Domain Controller services to be ready..."
+        Start-Sleep -Seconds 20
+    }
+}
+{{ end }}
+
+function Phenix-SetStartupStatus($status) {
+    echo "Marking phenix startup as $status in registry..."
+
+    If (-NOT (Test-Path 'HKLM:\Software\phenix')) {
+        New-Item -Path 'HKLM:\Software\phenix' -Force | Out-Null
+    }
+
+    New-ItemProperty -Path 'HKLM:\Software\phenix' -Name 'startup' -Value $status -PropertyType String -Force | Out-Null
+}
+
+function Phenix-StartupStatusIsSet {
+    If (-NOT (Test-Path 'HKLM:\Software\phenix')) {
+        return $false
+    }
+
+    $key = Get-Item -LiteralPath 'HKLM:\Software\phenix' -ErrorAction SilentlyContinue
+
+    if ($key) {
+        $val = $key.GetValue('startup')
+
+        if ($val) {
+          return $true
+        }
+
+        return $false
+    }
+
+    return $false
+}
+
+function Phenix-StartupStatusIs($status) {
+    If (-NOT (Test-Path 'HKLM:\Software\phenix')) {
+        return $false
+    }
+
+    $key = Get-Item -LiteralPath 'HKLM:\Software\phenix' -ErrorAction SilentlyContinue
+
+    if ($key) {
+        $val = $key.GetValue('startup')
+
+        if ($val) {
+          return $val -eq $status
+        }
+
+        return $false
+    }
+
+    return $false
+}
+
+{{ $rearm := index .Node.Annotations "phenix/windows-rearm" }}
+
+{{ if toBool $rearm }}
+echo 'Killing Windows Software Licensing UI'
+taskkill.exe /IM "slui.exe" /F
+{{ end }}
+
+if (Phenix-StartupStatusIs('done')) {
+    exit
+}
+
+if (-Not (Phenix-StartupStatusIsSet)) {
+    Phenix-SetStartupStatus('running')
+}
+
+{{ if toBool $rearm }}
+if (Phenix-StartupStatusIs('running')) {
+    echo 'Disabling WLMS service and rearming Windows license'
+    sc.exe config WLMS start= disabled
+    cscript.exe C:\Windows\System32\slmgr.vbs /rearm
+}
+{{ end }}
+
+echo 'Configuring network interfaces...'
+
+$wmi = $null
+Do {
+    Start-Sleep -Milliseconds 1000
+    $wmi = gwmi win32_NetworkAdapterConfiguration -Filter 'ipenabled = "true"' | sort -Property Description
+} While ($wmi -eq $null)
+{{ $length := len .Node.Network.Interfaces }}
+{{ range $idx, $iface := .Node.Network.Interfaces }}
+    {{ if and (eq $iface.Proto "static") (not $iface.QinQ) }}
+Do {
+        {{ if gt $length 1 }}
+    $status = $wmi[{{ $idx }}].EnableStatic('{{ $iface.Address }}', '{{ $iface.NetworkMask }}')
+        {{ else }}
+    $status = $wmi.EnableStatic('{{ $iface.Address }}', '{{ $iface.NetworkMask }}')
+        {{ end }}
+    Start-Sleep -Milliseconds 500
+} While ($status.ReturnValue -eq 2147786788)
+    {{ end }}
+    {{ if ne $iface.Gateway "" }}
+        {{ if gt $length 1 }}
+$wmi[{{ $idx }}].SetGateways('{{ $iface.Gateway }}', 1) | Out-Null
+        {{ else }}
+$wmi.SetGateways('{{ $iface.Gateway }}', 1) | Out-Null
+        {{ end }}
+    {{ end }}
+    {{ if $iface.DNS }}
+        {{ if gt $length 1 }}
+$wmi[{{ $idx }}].SetDNSServerSearchOrder(@('{{ stringsJoin $iface.DNS "', '" }}')) | Out-Null
+        {{ else }}
+$wmi.SetDNSServerSearchOrder(@('{{ stringsJoin $iface.DNS "', '" }}')) | Out-Null
+        {{ end }}
+    {{ end }}
+{{ end }}
+{{ range $route := .Node.Network.Routes }}
+$idx = Find-NetRoute -RemoteIPAddress '{{ $route.Next }}' | Select -First 1  -ExpandProperty InterfaceIndex
+New-NetRoute -DestinationPrefix '{{ $route.Destination }}' -InterfaceIndex $idx -NextHop {{ $route.Next }}
+{{ end }}
+
+{{ if .Metadata.domain_controller }}
+$adapters = Get-NetAdapter | sort -Property ifIndex
+Set-DnsClientServerAddress -InterfaceIndex $adapters[0].ifIndex -ServerAddresses "{{ index .Metadata "domain_controller" "ip" }}"
+{{ end }}
+
+echo 'Done configuring network interfaces'
+Start-Sleep -s 5
+
+$host_name = hostname
+if ($host_name -eq "{{ .Node.General.Hostname }}") {
+{{ if .Metadata.domain_controller }}
+    if (Phenix-StartupStatusIs('joined-domain')) {
+        echo 'Startup script complete!'
+        Phenix-SetStartupStatus('done')
+        exit
+    }
+
+    $domain = "{{ index .Metadata "domain_controller" "domain" }}"
+    $username = "{{ index .Metadata "domain_controller" "username" }}"
+    $password = "{{ index .Metadata "domain_controller" "password" }}" | ConvertTo-SecureString -AsPlainText -Force
+    $credential = New-Object System.Management.Automation.PSCredential($username,$password)
+
+    echo 'Joining $domain domain'
+    Add-Computer -DomainName $domain -Credential $credential
+
+    {{ if .Metadata.auto_logon }}
+    echo 'Adding auto logon'
+    $path = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+    Set-ItemProperty -Path $path -Name DefaultUserName -Value "{{ index .Metadata "auto_logon" "username" }}"
+    Set-ItemProperty -Path $path -Name DefaultPassword -Value "{{ index .Metadata "auto_logon" "password" }}"
+        {{ if index .Metadata "auto_logon" "local" }}
+    Set-ItemProperty -Path $path -Name DefaultDomainName -Value "."
+        {{ else }}
+    Set-ItemProperty -Path $path -Name DefaultDomainName -Value $domain
+        {{ end }}
+    Set-ItemProperty -Path $path -Name AutoAdminLogon -Value 1
+    {{ end }}
+
+    echo 'Domain joined. Restarting...'
+    Phenix-SetStartupStatus('joined-domain')
+    Restart-Computer -Force
+{{ else if .Metadata.auto_logon }}
+    if (Phenix-StartupStatusIs('auto-logon')) {
+        echo 'Startup script complete!'
+        Phenix-SetStartupStatus('done')
+        exit
+    }
+
+    echo 'Adding auto logon'
+    $path = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+    Set-ItemProperty -Path $path -Name DefaultUserName -Value "{{ index .Metadata "auto_logon" "username" }}"
+    Set-ItemProperty -Path $path -Name DefaultPassword -Value "{{ index .Metadata "auto_logon" "password" }}"
+    Set-ItemProperty -Path $path -Name DefaultDomainName -Value "."
+    Set-ItemProperty -Path $path -Name AutoAdminLogon -Value 1
+
+    Phenix-SetStartupStatus('auto-logon')
+    Restart-Computer -Force
+{{ else }}
+    echo 'Startup script complete!'
+    Phenix-SetStartupStatus('done')
+    exit
+{{ end }}
+} else {
+    echo 'Changing hostname'
+    $computer_info = Get-WmiObject -Class Win32_ComputerSystem
+    $computer_info.Rename("{{ .Node.General.Hostname }}")
+
+    echo 'Hostname changed. Restarting...'
+    Phenix-SetStartupStatus('restarted')
+    Restart-Computer -Force
+}
+
+$error | Out-File C:\phenix\phenix-startup.err

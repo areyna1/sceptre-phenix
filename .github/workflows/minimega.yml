@@ -1,0 +1,37 @@
+name: Publish minimega Docker image
+on:
+  push:
+    branches: ['**']
+jobs:
+  push-to-ghcr:
+    name: Push minimega Docker image to GitHub Packages
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v3
+      - name: Get short SHA
+        run: |
+          echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "branch=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_ENV
+      - name: Log in to GitHub Docker Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build container image
+        uses: docker/build-push-action@v3
+        with:
+          context: docker
+          file: docker/Dockerfile.minimega
+          build-args: |
+            MM_REV=c8e20a3
+            PHENIX_REVISION=${{ env.sha }}
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/minimega:c8e20a3
+            ghcr.io/${{ github.repository }}/minimega:${{ env.sha }}
+            ghcr.io/${{ github.repository }}/minimega:${{ env.branch }}

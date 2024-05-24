@@ -1,0 +1,74 @@
+namespace {{ .ExperimentName }}
+ns queueing true
+
+{{- if ne .DefaultBridge "phenix" }}
+ns bridge {{ .DefaultBridge }} gre
+{{- end }}
+
+{{- if and (ne .VLANs.Min 0) (ne .VLANs.Max 0) }}
+vlans range {{ .VLANs.Min }} {{ .VLANs.Max }}
+{{- end }}
+
+{{- range $alias, $id := .VLANs.Aliases }}
+  {{ if ne $id 0 }}
+vlans add {{ $alias }} {{ $id }}
+  {{- end }}
+{{- end }}
+
+{{- if eq .DeployMode "all" }}
+ns add-host localhost
+{{- else if eq .DeployMode "only-headnode" }}
+ns del-host all
+ns add-host localhost
+{{- end }}
+
+{{- $basedir := .BaseDir }}
+
+{{- range .Topology.Nodes }}
+    {{- if .External }}
+        {{ continue }}
+    {{- end }}
+
+{{/* added space to place hostname above relevant block */}}
+## VM: {{ .General.Hostname }} ##
+    {{- if (derefBool .General.DoNotBoot) }}
+## DoNotBoot: {{ derefBool .General.DoNotBoot }} ##
+    {{- else }}
+        {{- if (derefBool .General.Snapshot) -}}
+        {{ $firstDrive := index .Hardware.Drives 0 }}
+disk snapshot {{ $firstDrive.Image }} {{ $.SnapshotName .General.Hostname }} 
+            {{- if gt (len .Injections) 0 }}
+disk inject {{ $.SnapshotName .General.Hostname }}:{{ $firstDrive.GetInjectPartition }} files {{ .FileInjects $basedir }}
+            {{- end }}
+        {{- end }}
+clear vm config
+        {{- if ne (index $.Schedules .General.Hostname) "" }}
+vm config schedule {{ index $.Schedules .General.Hostname }}
+        {{- end }}
+vm config vcpus {{ .Hardware.VCPU }}
+vm config cpu {{ .Hardware.CPU }}
+vm config memory {{ .Hardware.Memory }}
+vm config snapshot {{ derefBool .General.Snapshot }}
+        {{- if (derefBool .General.Snapshot) }}
+vm config disk {{ .Hardware.DiskConfig ($.SnapshotName .General.Hostname) }}
+        {{- else }}
+vm config disk {{ .Hardware.DiskConfig "" }}
+        {{- end }}
+        {{- if eq .Hardware.OSType "linux" }}
+vm config qemu-append -vga qxl
+        {{- end }}
+        {{- if .Network }}
+vm config net {{ .Network.InterfaceConfig }}
+        {{- end }}
+        {{- range $config, $value := .Advanced }}
+vm config {{ $config }} {{ $value }}
+        {{- end }}
+        {{- range $match, $replacement := .Overrides }}
+vm config qemu-override "{{ $match }}" "{{ $replacement }}"
+        {{- end }}
+        {{- range $label, $value := .Labels }}
+vm config tags {{ $label }} {{ $value }}
+        {{- end }}
+vm launch {{ .General.VMType }} {{ .General.Hostname }}
+    {{- end }}
+{{- end }}

@@ -1,0 +1,11 @@
+*.bdb
+*.code-workspace
+
+.devcontainer
+.vscode
+
+bin
+
+staticcheck.conf
+
+.venv
