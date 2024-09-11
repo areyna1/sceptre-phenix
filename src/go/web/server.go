@@ -261,6 +261,7 @@ func Start(opts ...ServerOption) error {
 
 	addRoutesToRouter(api, workflowRoutes...)
 	addRoutesToRouter(api, errorRoutes...)
+	addRoutesToRouter(api, optionRoutes...)
 
 	if o.allowCORS {
 		plog.Info("CORS is enabled on HTTP API endpoints")
@@ -313,6 +314,16 @@ func Start(opts ...ServerOption) error {
 		listener, err := net.Listen("unix", common.UnixSocket)
 		if err != nil {
 			return err
+		}
+
+		if o.unixSocketGid != -1 {
+			plog.Info("setting Unix socket group permissions", "gid", o.unixSocketGid)
+			if err = os.Chown(common.UnixSocket, -1, o.unixSocketGid); err != nil {
+				return err
+			}
+			if err := os.Chmod(common.UnixSocket, 0775); err != nil {
+				return err
+			}
 		}
 
 		go func() {

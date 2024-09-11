@@ -55,6 +55,7 @@ const router = new Router({
     {path: '/builder?token=:token', name: 'builder'},
     {path: '/version',              name: 'version'},
     {path: '/features',             name: 'features'},
+    {path: '/api/v1/options',       name: 'options'},
 
     {path: '/api/v1/console/:pid/ws',   name: 'console-ws'},
     {path: '/api/v1/console/:pid/size', name: 'console-size'},
@@ -63,7 +64,8 @@ const router = new Router({
     {path: '/api/v1/experiments/:id/vms/:name/vnc?token=:token',            name: 'vnc'},
 
     {path: '/downloads/tunneler/phenix-tunneler-linux-amd64',       name: 'linux-tunneler'},
-    {path: '/downloads/tunneler/phenix-tunneler-darwin-arm64',      name: 'macos-tunneler'},
+    {path: '/downloads/tunneler/phenix-tunneler-darwin-arm64',      name: 'macos-arm-tunneler'},
+    {path: '/downloads/tunneler/phenix-tunneler-darwin-amd64',      name: 'macos-intel-tunneler'},
     {path: '/downloads/tunneler/phenix-tunneler-windows-amd64.exe', name: 'windows-tunneler'},
 
     {path: '/proxysignup', name: 'proxysignup', component: ProxySignUp, props: true},
@@ -92,41 +94,39 @@ router.beforeEach( async ( to, from, next ) => {
         }
       }
 
-      store.commit( 'LOGIN', { loginResponse, 'remember': false } )
+      store.commit( 'LOGIN', { loginResponse, 'remember': false } );
     }
 
-    next()
-    return
+    next();
+    return;
   }
 
   if ( to.name === 'disabled' ) {
-    next()
-    return
+    next();
+    return;
   }
 
   if ( to.name === 'signin' && process.env.VUE_APP_AUTH === 'enabled' ) {
-    next()
-    return
+    next();
+    return;
   }
 
   if ( to.name === 'proxysignup' && process.env.VUE_APP_AUTH === 'proxy' ) {
-    next()
-    return
+    next();
+    return;
   }
 
   if ( store.getters.auth ) {
     if ( store.getters.role.name === 'Disabled' ) {
-      router.replace( '/disabled' );
+      router.replace('/disabled');
+    } else if ( to.name === 'signin' ) {
+      // No need to go to the signin route if already authorized.
+      router.replace('/');
+    } else {
+      next();
     }
-
-    // No need to go to the signin route if already authorized.
-    if ( to.name === 'signin' ) {
-      router.replace( '/' );
-    }
-
-    next()
   } else {
-    store.commit( 'NEXT', to )
+    store.commit( 'NEXT', to );
 
     if ( process.env.VUE_APP_AUTH === 'proxy' ) {
       try {
@@ -142,7 +142,7 @@ router.beforeEach( async ( to, from, next ) => {
         }
       }
     } else {
-      next( {name: 'signin'} )
+      next( {name: 'signin'} );
     }
   }
 })

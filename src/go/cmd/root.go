@@ -39,6 +39,17 @@ var rootCmd = &cobra.Command{
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		common.UnixSocket = viper.GetString("unix-socket")
 
+		// Initialize bridge mode and use GRE mesh options with values set locally
+		// by user. Later they will be forcefully enabled if they're enabled at the
+		// server. This must be done before getting options from the server (unlike
+		// deploy mode option).
+
+		if err := common.SetBridgeMode(viper.GetString("bridge-mode")); err != nil {
+			return fmt.Errorf("setting user-specified bridge mode: %w", err)
+		}
+
+		common.UseGREMesh = viper.GetBool("use-gre-mesh")
+
 		// check for global options set by UI server
 		if common.UnixSocket != "" {
 			cli := http.Client{
@@ -56,13 +67,33 @@ var rootCmd = &cobra.Command{
 					var options map[string]any
 					json.Unmarshal(body, &options)
 
-					if mode, _ := options["deploy-mode"].(string); mode != "" {
-						if deployMode, err := common.ParseDeployMode(mode); err == nil {
-							common.DeployMode = deployMode
+					mode, _ := options["bridge-mode"].(string)
+
+					// Only override value locally set by user (above) if auto mode is set
+					// on the server.
+					if mode == string(common.BRIDGE_MODE_AUTO) {
+						if err := common.SetBridgeMode(mode); err != nil {
+							return fmt.Errorf("setting server-specified bridge mode: %w", err)
 						}
 					}
+
+					mode, _ = options["deploy-mode"].(string)
+					if err := common.SetDeployMode(mode); err != nil {
+						return fmt.Errorf("setting server-specified deploy mode: %w", err)
+					}
+
+					// Enable use GRE mesh if enabled either locally or at server.
+					gre, _ := options["use-gre-mesh"].(bool)
+					common.UseGREMesh = common.UseGREMesh || gre
 				}
 			}
+		}
+
+		// Override deploy mode option from UI server if set locally by user. This
+		// must be done after getting options from the server (unlike use GRE mesh
+		// option).
+		if err := common.SetDeployMode(viper.GetString("deploy-mode")); err != nil {
+			return fmt.Errorf("setting user-specified deploy mode: %w", err)
 		}
 
 		plog.NewPhenixHandler()
@@ -71,16 +102,6 @@ var rootCmd = &cobra.Command{
 		common.PhenixBase = viper.GetString("base-dir.phenix")
 		common.MinimegaBase = viper.GetString("base-dir.minimega")
 		common.HostnameSuffixes = viper.GetString("hostname-suffixes")
-
-		// if deploy mode option is set locally by user, use it instead of global from UI
-		if opt := viper.GetString("deploy-mode"); opt != "" {
-			mode, err := common.ParseDeployMode(opt)
-			if err != nil {
-				return fmt.Errorf("parsing deploy mode: %w", err)
-			}
-
-			common.DeployMode = mode
-		}
 
 		var (
 			endpoint = viper.GetString("store.endpoint")
@@ -173,7 +194,9 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&hostnameSuffixes, "hostname-suffixes", "-minimega,-phenix", "hostname suffixes to strip")
 	rootCmd.PersistentFlags().Bool("log.error-stderr", true, "log fatal errors to STDERR")
 	rootCmd.PersistentFlags().String("log.level", "info", "level to log messages at")
+	rootCmd.PersistentFlags().String("bridge-mode", "", "bridge naming mode for experiments ('auto' uses experiment name for bridge; 'manual' uses user-specified bridge name, or 'phenix' if not specified) (options: manual | auto)")
 	rootCmd.PersistentFlags().String("deploy-mode", "", "deploy mode for minimega VMs (options: all | no-headnode | only-headnode)")
+	rootCmd.PersistentFlags().Bool("use-gre-mesh", false, "use GRE tunnels between mesh nodes for VLAN trunking")
 	rootCmd.PersistentFlags().String("unix-socket", "/tmp/phenix.sock", "phēnix unix socket to listen on (ui subcommand) or connect to")
 
 	if uid == "0" {

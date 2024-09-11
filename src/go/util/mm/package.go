@@ -60,6 +60,10 @@ func DisconnectVMInterface(opts ...Option) error {
 	return DefaultMM.DisconnectVMInterface(opts...)
 }
 
+func CreateBridge(opts ...Option) error {
+	return DefaultMM.CreateBridge(opts...)
+}
+
 func CreateTunnel(opts ...Option) error {
 	return DefaultMM.CreateTunnel(opts...)
 }
@@ -90,6 +94,10 @@ func GetVMCaptures(opts ...Option) []Capture {
 
 func GetClusterHosts(schedOnly bool) (Hosts, error) {
 	return DefaultMM.GetClusterHosts(schedOnly)
+}
+
+func GetNamespaceHosts(ns string) (Hosts, error) {
+	return DefaultMM.GetNamespaceHosts(ns)
 }
 
 func Headnode() string {
@@ -130,6 +138,10 @@ func TapVLAN(opts ...TapOption) error {
 
 func MeshShell(host, cmd string) error {
 	return DefaultMM.MeshShell(host, cmd)
+}
+
+func MeshShellResponse(host, cmd string) (string, error) {
+	return DefaultMM.MeshShellResponse(host, cmd)
 }
 
 func MeshSend(ns, host, command string) error {

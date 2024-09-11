@@ -165,7 +165,7 @@ func (this *Scorch) Running(ctx context.Context, exp *types.Experiment) error {
 	}
 
 	if _, err := os.Stat(runDir); err == nil {
-		archive := filepath.Join(exp.FilesDir(), fmt.Sprintf("scorch-run-%d_%s.tgz", runID, start.Format(time.RFC3339)))
+		archive := filepath.Join(exp.FilesDir(), fmt.Sprintf("scorch-run-%d_%s.tgz", runID, start.Format("2006-01-02T15-04-05Z0700")))
 
 		if err := util.CreateArchive(runDir, archive); err != nil {
 			errors = multierror.Append(errors, fmt.Errorf("archiving data generated for run %d: %w", runID, err))
@@ -364,7 +364,7 @@ func (this Scorch) recordInfo(runID int, runDir string, md store.ConfigMetadata,
 		mmVersion,
 	)
 
-	fileName := fmt.Sprintf("info-scorch-run-%d_%s.txt", runID, startTime.Format(time.RFC3339))
+	fileName := fmt.Sprintf("info-scorch-run-%d_%s.txt", runID, startTime.Format("2006-01-02T15-04-05Z0700"))
 
 	if err := os.MkdirAll(runDir, 0755); err != nil {
 		return fmt.Errorf("creating %s directory for scorch run %d: %w", runDir, runID, err)
@@ -385,6 +385,8 @@ func executor(ctx context.Context, components scorchmd.ComponentSpecMap, exe *sc
 		loopPrefix = fmt.Sprintf("[RUN: %d - LOOP: %d - COUNT: %d]", options.Run, options.Loop, options.Count)
 	)
 
+	logger := plog.LoggerFromContext(ctx)
+
 	if options.Loop == 0 {
 		scorch.DeletePipeline(exp, options.Run, -1, true)
 	}
@@ -396,6 +398,8 @@ func executor(ctx context.Context, components scorchmd.ComponentSpecMap, exe *sc
 		Count: options.Count,
 	}
 
+	logger.Info("starting scorch", "run", loopPrefix)
+
 	configure := func() error {
 		update.Stage = string(ACTIONCONFIG)
 
@@ -406,6 +410,8 @@ func executor(ctx context.Context, components scorchmd.ComponentSpecMap, exe *sc
 			scorch.UpdatePipeline(update)
 			return nil
 		}
+
+		logger.Info("running scorch configure stage")
 
 		for _, name := range exe.Configure {
 			typ := components[name].Type
@@ -429,10 +435,14 @@ func executor(ctx context.Context, components scorchmd.ComponentSpecMap, exe *sc
 			scorch.UpdateComponent(update)
 			scorch.UpdatePipeline(update)
 
+			logger.Debug("running scorch configure stage component", "component", name)
+
 			if err := ExecuteComponent(ctx, options...); err != nil {
 				update.Status = "failure"
 				scorch.UpdateComponent(update)
 				scorch.UpdatePipeline(update)
+
+				logger.Error("[✗] failed scorch configure stage component", "component", name, "err", err)
 
 				return fmt.Errorf("%s configuring component %s for experiment %s: %w", loopPrefix, name, exp, err)
 			}
@@ -441,6 +451,8 @@ func executor(ctx context.Context, components scorchmd.ComponentSpecMap, exe *sc
 				update.Status = "success"
 				scorch.UpdateComponent(update)
 				scorch.UpdatePipeline(update)
+
+				logger.Debug("[✓] completed scorch configure stage component", "component", name)
 			}
 		}
 
@@ -457,6 +469,8 @@ func executor(ctx context.Context, components scorchmd.ComponentSpecMap, exe *sc
 			scorch.UpdatePipeline(update)
 			return nil
 		}
+
+		logger.Info("running scorch start stage")
 
 		for _, name := range exe.Start {
 			typ := components[name].Type
@@ -480,10 +494,14 @@ func executor(ctx context.Context, components scorchmd.ComponentSpecMap, exe *sc
 			scorch.UpdateComponent(update)
 			scorch.UpdatePipeline(update)
 
+			logger.Debug("running scorch start stage component", "component", name)
+
 			if err := ExecuteComponent(ctx, options...); err != nil {
 				update.Status = "failure"
 				scorch.UpdateComponent(update)
 				scorch.UpdatePipeline(update)
+
+				logger.Error("[✗] failed scorch start stage component", "component", name, "err", err)
 
 				return fmt.Errorf("%s starting component %s for experiment %s: %w", loopPrefix, name, exp, err)
 			}
@@ -492,6 +510,8 @@ func executor(ctx context.Context, components scorchmd.ComponentSpecMap, exe *sc
 				update.Status = "success"
 				scorch.UpdateComponent(update)
 				scorch.UpdatePipeline(update)
+
+				logger.Debug("[✓] completed scorch start stage component", "component", name)
 			}
 		}
 
@@ -511,6 +531,8 @@ func executor(ctx context.Context, components scorchmd.ComponentSpecMap, exe *sc
 
 		var errors error
 
+		logger.Info("running scorch stop stage")
+
 		for _, name := range exe.Stop {
 			typ := components[name].Type
 
@@ -526,16 +548,22 @@ func executor(ctx context.Context, components scorchmd.ComponentSpecMap, exe *sc
 			scorch.UpdateComponent(update)
 			scorch.UpdatePipeline(update)
 
+			logger.Debug("running stop stage component", "component", name)
+
 			if err := ExecuteComponent(ctx, options...); err != nil {
 				update.Status = "failure"
 				scorch.UpdateComponent(update)
 				scorch.UpdatePipeline(update)
+
+				logger.Error("[✗] failed scorch stop stage component", "component", name, "err", err)
 
 				errors = multierror.Append(errors, fmt.Errorf("%s stopping component %s for experiment %s: %w", loopPrefix, name, exp, err))
 			} else {
 				update.Status = "success"
 				scorch.UpdateComponent(update)
 				scorch.UpdatePipeline(update)
+
+				logger.Debug("[✓] completed scorch stop stage component", "component", name)
 			}
 		}
 
@@ -555,6 +583,8 @@ func executor(ctx context.Context, components scorchmd.ComponentSpecMap, exe *sc
 
 		var errors error
 
+		logger.Info("running scorch cleanup stage")
+
 		for _, name := range exe.Cleanup {
 			typ := components[name].Type
 
@@ -570,17 +600,23 @@ func executor(ctx context.Context, components scorchmd.ComponentSpecMap, exe *sc
 			scorch.UpdateComponent(update)
 			scorch.UpdatePipeline(update)
 
+			logger.Debug("running cleanup stage component", "component", name)
+
 			err := ExecuteComponent(ctx, options...)
 			if err != nil {
 				update.Status = "failure"
 				scorch.UpdateComponent(update)
 				scorch.UpdatePipeline(update)
 
+				logger.Error("[✗] failed scorch cleanup stage component", "component", name, "err", err)
+
 				errors = multierror.Append(errors, fmt.Errorf("%s cleaning up component %s for experiment %s: %w", loopPrefix, name, exp, err))
 			} else {
 				update.Status = "success"
 				scorch.UpdateComponent(update)
 				scorch.UpdatePipeline(update)
+
+				logger.Debug("[✓] completed scorch cleanup stage component", "component", name)
 			}
 		}
 

@@ -22,6 +22,8 @@ type MM interface {
 	ConnectVMInterface(...Option) error
 	DisconnectVMInterface(...Option) error
 
+	CreateBridge(...Option) error
+
 	CreateTunnel(...Option) error
 	GetTunnels(...Option) []map[string]string
 	CloseTunnel(...Option) error
@@ -32,6 +34,7 @@ type MM interface {
 	GetVMCaptures(...Option) []Capture
 
 	GetClusterHosts(bool) (Hosts, error)
+	GetNamespaceHosts(string) (Hosts, error)
 	Headnode() string
 	IsHeadnode(string) bool
 	GetVLANs(...Option) (map[string]int, error)
@@ -44,5 +47,6 @@ type MM interface {
 
 	TapVLAN(...TapOption) error
 	MeshShell(string, string) error
+	MeshShellResponse(string, string) (string, error)
 	MeshSend(string, string, string) error
 }

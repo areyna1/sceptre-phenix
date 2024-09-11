@@ -35,6 +35,8 @@ type serverOptions struct {
 	proxyAuthHeader string
 
 	features map[string]bool
+
+	unixSocketGid int
 }
 
 func newServerOptions(opts ...ServerOption) serverOptions {
@@ -173,6 +175,12 @@ func ServeWithFeatures(f []string) ServerOption {
 	}
 }
 
+func ServeWithUnixSocketGid(g int) ServerOption {
+	return func(o *serverOptions) {
+		o.unixSocketGid = g
+	}
+}
+
 // GET /options
 func GetOptions(w http.ResponseWriter, r *http.Request) error {
 	plog.Debug("HTTP handler called", "handler", "GetOptions")
@@ -188,7 +196,9 @@ func GetOptions(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	options := map[string]any{
-		"deploy-mode": common.DeployMode,
+		"bridge-mode":  common.BridgeMode,
+		"deploy-mode":  common.DeployMode,
+		"use-gre-mesh": common.UseGREMesh,
 	}
 
 	body, err := json.Marshal(options)
