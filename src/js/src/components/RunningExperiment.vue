@@ -629,7 +629,7 @@
               </template>
               <section v-if="props.row.busy">
                 <p  />
-                <b-progress size="is-small" type="is-warning" show-value :value=props.row.percent format="percent"></b-progress>
+                <b-progress size="is-small" type="is-warning" show-value :value="props.row.percent" format="percent"></b-progress>
               </section>
             </b-table-column>
             <b-table-column field="screenshot"  label="Screenshot" centered v-slot="props">
@@ -754,6 +754,18 @@
                 {{ props.row.uptime | uptime }}
               </template>
             </b-table-column>
+            <b-table-column label="Labels" centered v-slot="props">
+                <template>
+                  <b-tooltip label="View/Edit Labels" type="is-dark">
+                    <div @click="showTagsModal( props.row )" class="is-clickable">
+                      <font-awesome-layers full-width>
+                        <font-awesome-icon  icon="tag" />
+                        <font-awesome-layers-text counter :value="tagCount(props.row.tags)" />
+                      </font-awesome-layers>
+                    </div>
+                  </b-tooltip>
+                </template>
+              </b-table-column>
           </b-table>
           <br>
           <b-field v-if="paginationNeeded" grouped position="is-right">
@@ -841,6 +853,8 @@
 <script>
   import { mapState }        from 'vuex';
   import VmMountBrowserModal from './VMMountBrowserModal.vue';
+  import VmLabelsModal from './VMLabelsModal.vue';
+
 
   import _ from 'lodash';
 
@@ -1001,6 +1015,16 @@
         this.filesTable.defaultSortDirection = order;
         this.updateFiles();
       }, 
+
+      showTagsModal ( vm ) {
+        this.$buefy.modal.open({
+          parent:       this,
+          component:    VmLabelsModal,
+          trapFocus:    true,
+          hasModalCard: true,
+          props:        {"vmName": vm.name, "experiment": this.$route.params.id, "tags": vm.tags}
+        })
+      },
 
       handler ( event ) {
         event.data.split( /\r?\n/ ).forEach( m => {
@@ -1258,11 +1282,7 @@
               }
 
               case  'progress': {
-                 //this.$buefy.toast.open({
-                 //     message: 'PROGRESS',
-                 //     duration: 200
-                 //   });
-                let percent = ( msg.result.percent * 100 ).toFixed( 0 );
+                let percent = Math.round( msg.result.percent * 100 );
 
                 for ( let i = 0; i < vms.length; i++ ) {
                   if  ( vms[i].name == vm[ 1 ] ) {
@@ -1289,20 +1309,19 @@
                 for ( let i = 0; i < vms.length; i++ ) {
                   if  ( vms[i].name == vm[ 1 ] ) {
                     vms[i].busy = false;
-                    vms[i] = msg.result.vm;                    
-                      let disk  = msg.result.disk;
-                  
-                      this.$buefy.toast.open({
-                        message: 'A memory snapshot was created with name ' + disk + ' for the ' + vm[ 1 ] + ' VM was successfully created.',
-                        type: 'is-success',
-                        duration: 4000
-                      });
-                      this.experiment.vms = [ ...vms ];
-                      break;
-                    }
+                    let disk  = msg.result.disk;
+                
+                    this.$buefy.toast.open({
+                      message: 'A memory snapshot was created with name ' + disk + ' for the ' + vm[ 1 ] + ' VM was successfully created.',
+                      type: 'is-success',
+                      duration: 4000
+                    });
+                    this.experiment.vms = [ ...vms ];
+                    break;
                   }
-                  break;
                 }
+                break;
+              }
               case  'committing': {
 
                 for ( let i = 0; i < vms.length; i++ ) {
@@ -1343,6 +1362,9 @@
           case  'experiment/vm/screenshot': {
             let vm = msg.resource.name.split( '/' );
             let vms = this.experiment.vms;
+            if (!vms) {
+              break;
+            }
 
             switch ( msg.resource.action ) {
               case  'update': {                
@@ -1416,6 +1438,9 @@
           case  'experiment/vm/snapshot': {
             let vm = msg.resource.name.split( '/' );
             let vms = this.experiment.vms;
+            if (!vms) {
+              break;
+            }
 
             switch ( msg.resource.action ) {
               case  'create': {
@@ -1454,7 +1479,7 @@
               }
 
               case  'progress': {
-                let percent = ( msg.result.percent * 100 ).toFixed( 0 );
+                let percent = Math.round(msg.result.percent * 100 );
 
                 for ( let i = 0; i < vms.length; i++ ) {
                   if  ( vms[i].name == vm[ 1 ] ) {
@@ -3334,7 +3359,10 @@
 </script>
 
 <style scoped>
-div.autocomplete >>> a.dropdown-item {
-  color:  #383838 !important;
-}
+  div.autocomplete >>> a.dropdown-item {
+    color:  #383838 !important;
+  }
+  .fa-layers-counter { /* counter on tag icon */
+    transform: scale(.7) translateX(50%) translateY(-50%);
+  }
 </style>

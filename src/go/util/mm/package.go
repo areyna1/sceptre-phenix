@@ -52,6 +52,10 @@ func GetVMState(opts ...Option) (string, error) {
 	return DefaultMM.GetVMState(opts...)
 }
 
+func SetVMTags(opts ...Option) error {
+	return DefaultMM.SetVMTags(opts...)
+}
+
 func ConnectVMInterface(opts ...Option) error {
 	return DefaultMM.ConnectVMInterface(opts...)
 }
@@ -106,6 +110,10 @@ func Headnode() string {
 
 func IsHeadnode(node string) bool {
 	return DefaultMM.IsHeadnode(node)
+}
+
+func GetMMArgs() (map[string]string, error) {
+	return DefaultMM.GetMMArgs()
 }
 
 func GetVLANs(opts ...Option) (map[string]int, error) {
