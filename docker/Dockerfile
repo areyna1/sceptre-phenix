@@ -83,7 +83,7 @@ RUN CGO_ENABLED=0 GOOS=linux go install -trimpath ./...
 
 
 # ** Build the phenix image **
-FROM ubuntu:24.04
+FROM ubuntu:22.04
 
 # General image metadata
 # Reference: https://github.com/opencontainers/image-spec/blob/main/annotations.md
