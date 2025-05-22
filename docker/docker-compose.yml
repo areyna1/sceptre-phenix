@@ -34,6 +34,7 @@ services:
       - /phenix:/phenix:shared
       - ./tmp/minimega:/tmp/minimega
       - ./tmp/phenix:/tmp/phenix
+
     depends_on:
       - minimega
     healthcheck:
@@ -57,32 +58,13 @@ services:
       - /phenix:/phenix:shared
       - ./tmp/minimega:/tmp/minimega
       - ./tmp/phenix:/tmp/phenix
+      # Mount your fork of sceptre-phenix-apps
+      # At runtime after making changes: docker exec -it phenix python3 -m pip install /opt/oss-phenix-apps
+      # Syntax: <path-to-fork>:/opt/oss-phenix-apps
+      - /home/ubuntu/sceptre-phenix-apps-reyna/src/python:/opt/oss-phenix-apps
     healthcheck:
       test: mm version
     environment:
       MM_FILEPATH: /phenix/images
       MM_LOGFILE: /var/log/phenix/minimega.log
       MM_LOGLEVEL: info
-  es:
-    image: elasticsearch:7.17.5
-    container_name: es
-    <<: *common
-    volumes:
-      - /phenix/share/elasticsearch/data:/usr/share/elasticsearch/data
-    environment:
-      discovery.type: single-node
-    depends_on:
-      - volume-permissions-manager
-  kibana:
-    image: kibana:7.17.5
-    container_name: kibana
-    <<: *common
-    environment:
-      ELASTICSEARCH_HOSTS: http://localhost:9200
-    depends_on:
-      - es
-  volume-permissions-manager:
-    image: alpine:latest
-    command: sh -c "chmod -R 777 /usr/share/elasticsearch"
-    volumes:
-      - /phenix/share/elasticsearch/data:/usr/share/elasticsearch/data
